@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vercel 共享（进阶版）</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 12px; }
+    textarea { width: 100%; height: 140px; }
+    input[type=text], input[type=password] { width: 100%; padding: 10px; box-sizing: border-box; }
+    button { padding: 10px 16px; margin-right: 8px; }
+    .card { border: 1px solid #eee; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .row { display: flex; gap: 8px; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    pre { white-space: pre-wrap; background: #f5f5f5; padding: 12px; border-radius: 8px; }
+    .hint { color: #666; font-size: 12px; }
+    .ok { color: #0a0; }
+    .err { color: #a00; }
+  </style>
+</head>
+<body>
+  <h1>Vercel 共享（进阶版 Pro）</h1>
+  <div class="card">
+    <h3>1) 后端地址</h3>
+    <input id="base" type="text" placeholder="例如：https://your-app.vercel.app/api" />
+    <div class="hint">把 Vercel 的项目地址填进来（以 /api 结尾）。</div>
+  </div>
+
+  <div class="card">
+    <h3>2) 兑换码登录</h3>
+    <div class="two">
+      <input id="code" type="text" placeholder="输入兑换码（管理员提供）" />
+      <input id="uid" type="text" placeholder="你的昵称/ID（可留空）" />
+    </div>
+    <div style="margin-top:10px;">
+      <button id="redeem">兑换并登录</button>
+      <span id="redeemStatus"></span>
+    </div>
+    <div class="hint">兑换成功后，会把 JWT 保存到浏览器（localStorage）。</div>
+  </div>
+
+  <div class="card">
+    <h3>3) 聊天</h3>
+    <div class="two">
+      <input id="model" type="text" value="gpt-4o-mini" />
+      <button id="save">保存配置</button>
+    </div>
+    <textarea id="msg" placeholder="在这里输入你的问题..."></textarea>
+    <div style="margin-top:10px;">
+      <button id="ask">发送</button>
+      <button id="clear">清空输出</button>
+    </div>
+    <h4>回复</h4>
+    <pre id="out"></pre>
+  </div>
+
+  <script>
+    const baseEl = document.getElementById('base');
+    const codeEl = document.getElementById('code');
+    const uidEl = document.getElementById('uid');
+    const modelEl = document.getElementById('model');
+    const msgEl = document.getElementById('msg');
+    const outEl = document.getElementById('out');
+    const redeemStatus = document.getElementById('redeemStatus');
+
+    function load() {
+      baseEl.value = localStorage.getItem('pro_base') || '';
+      modelEl.value = localStorage.getItem('pro_model') || 'gpt-4o-mini';
+    }
+    function save() {
+      localStorage.setItem('pro_base', baseEl.value);
+      localStorage.setItem('pro_model', modelEl.value);
+      alert('已保存');
+    }
+
+    async function redeem() {
+      redeemStatus.textContent = '兑换中...';
+      redeemStatus.className = '';
+      const base = baseEl.value.trim();
+      const code = codeEl.value.trim();
+      const uid = uidEl.value.trim();
+      if (!base || !code) { redeemStatus.textContent = '请先填后端URL和兑换码'; redeemStatus.className='err'; return; }
+      try {
+        const r = await fetch(base.replace(/\\/$/, '') + '/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, uid })
+        });
+        const data = await r.json();
+        if (r.ok && data.token) {
+          localStorage.setItem('pro_token', data.token);
+          redeemStatus.textContent = '兑换成功，已登录';
+          redeemStatus.className = 'ok';
+        } else {
+          redeemStatus.textContent = '失败：' + (data.error || 'unknown');
+          redeemStatus.className = 'err';
+        }
+      } catch (e) {
+        redeemStatus.textContent = '网络错误：' + e.message;
+        redeemStatus.className = 'err';
+      }
+    }
+
+    async function ask() {
+      const base = baseEl.value.trim();
+      const token = localStorage.getItem('pro_token') || '';
+      const model = modelEl.value.trim();
+      if (!base || !token) { alert('请先配置后端并兑换登录'); return; }
+      const body = {
+        model,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant.' },
+          { role: 'user', content: msgEl.value }
+        ],
+        max_tokens: 500
+      };
+      outEl.textContent = '请求中...';
+      try {
+        const r = await fetch(base.replace(/\\/$/, '') + '/chat', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        const text = data?.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+        outEl.textContent = text;
+      } catch (e) {
+        outEl.textContent = '请求失败：' + e.message;
+      }
+    }
+
+    document.getElementById('save').addEventListener('click', save);
+    document.getElementById('redeem').addEventListener('click', redeem);
+    document.getElementById('ask').addEventListener('click', ask);
+    document.getElementById('clear').addEventListener('click', () => outEl.textContent = '');
+    load();
+  </script>
+</body>
+</html>
